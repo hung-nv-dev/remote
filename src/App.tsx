@@ -4,7 +4,7 @@ import FlowDiagram from "./components/FlowDiagram";
 
 function App() {
   return (
-    <Layout style={{ minHeight: "100vh" }}>
+    <Layout style={{ minHeight: "100vh", width: "100vw" }}>
       <FlowDiagram />
     </Layout>
   );

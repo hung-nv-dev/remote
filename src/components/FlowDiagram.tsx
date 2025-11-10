@@ -9,8 +9,10 @@ import {
   addEdge,
   BackgroundVariant,
   Position,
+  Handle,
   type OnConnect,
   type Node,
+  type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Card } from 'antd';
@@ -23,6 +25,11 @@ const nodeStyle = {
   alignItems: 'center',
   justifyContent: 'center',
   borderRadius: 4,
+  backgroundColor: '#fff',
+  border: '2px solid #1a192b',
+  color: '#222',
+  fontSize: '12px',
+  fontWeight: 500,
 };
 
 // Node width + gap = 80 + 50 = 130
@@ -30,70 +37,106 @@ const nodeWidth = 80;
 const gap = 50;
 const spacing = nodeWidth + gap;
 
+// Custom node component with 4-direction handles
+const CustomNode = (props: NodeProps) => {
+  const { data, id } = props;
+  return (
+    <div style={nodeStyle}>
+      {/* Top handle */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        id={`${id}-top`}
+        style={{ top: -5 }}
+      />
+      {/* Right handle */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        id={`${id}-right`}
+        style={{ right: -5 }}
+      />
+      {/* Bottom handle */}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id={`${id}-bottom`}
+        style={{ bottom: -5 }}
+      />
+      {/* Left handle */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id={`${id}-left`}
+        style={{ left: -5 }}
+      />
+      <div>{(data as { label: string })?.label || ''}</div>
+    </div>
+  );
+};
+
 const initialNodes: Node[] = [
   // First row - 7 nodes horizontally with 50px gap
   {
     id: '1',
-    type: 'input',
+    type: 'custom',
     data: { label: 'Node 1' },
     position: { x: 0, y: 50 },
-    style: nodeStyle,
   },
   {
     id: '2',
+    type: 'custom',
     data: { label: 'Node 2' },
     position: { x: spacing, y: 50 },
-    style: nodeStyle,
   },
   {
     id: '3',
+    type: 'custom',
     data: { label: 'Node 3' },
     position: { x: spacing * 2, y: 50 },
-    style: nodeStyle,
   },
   {
     id: '4',
+    type: 'custom',
     data: { label: 'Node 4' },
     position: { x: spacing * 3, y: 50 },
-    style: nodeStyle,
   },
   {
     id: '5',
+    type: 'custom',
     data: { label: 'Node 5' },
     position: { x: spacing * 4, y: 50 },
-    style: nodeStyle,
   },
   {
     id: '6',
+    type: 'custom',
     data: { label: 'Node 6' },
     position: { x: spacing * 5, y: 50 },
-    style: nodeStyle,
   },
   {
     id: '7',
-    type: 'output',
+    type: 'custom',
     data: { label: 'Node 7' },
     position: { x: spacing * 6, y: 50 },
-    style: nodeStyle,
   },
   // Second row - 3 nodes below node 4 (100px down)
   {
     id: '8',
+    type: 'custom',
     data: { label: 'Node 8' },
     position: { x: spacing * 2, y: 150 },
-    style: nodeStyle,
   },
   {
     id: '9',
+    type: 'custom',
     data: { label: 'Node 9' },
     position: { x: spacing * 3, y: 150 },
-    style: nodeStyle,
   },
   {
     id: '10',
+    type: 'custom',
     data: { label: 'Node 10' },
     position: { x: spacing * 4, y: 150 },
-    style: nodeStyle,
   },
 ];
 
@@ -103,53 +146,60 @@ const initialEdges = [
     id: 'e1-2',
     source: '1',
     target: '2',
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left,
+    sourceHandle: '1-right',
+    targetHandle: '2-left',
+    type: 'smoothstep',
     animated: true
   },
   {
     id: 'e2-3',
     source: '2',
     target: '3',
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left
+    sourceHandle: '2-right',
+    targetHandle: '3-left',
+    type: 'smoothstep'
   },
   {
     id: 'e3-4',
     source: '3',
     target: '4',
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left
+    sourceHandle: '3-right',
+    targetHandle: '4-left',
+    type: 'smoothstep'
   },
   {
     id: 'e4-5',
     source: '4',
     target: '5',
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left
+    sourceHandle: '4-right',
+    targetHandle: '5-left',
+    type: 'smoothstep'
   },
   {
     id: 'e5-6',
     source: '5',
     target: '6',
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left
+    sourceHandle: '5-right',
+    targetHandle: '6-left',
+    type: 'smoothstep'
   },
   {
     id: 'e6-7',
     source: '6',
     target: '7',
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left
+    sourceHandle: '6-right',
+    targetHandle: '7-left',
+    type: 'smoothstep'
   },
   // Link from 3rd node (first row) to 1st node (second row)
   {
     id: 'e3-8',
     source: '3',
     target: '8',
+    sourceHandle: '3-bottom',
+    targetHandle: '8-top',
+    type: 'smoothstep',
     label: 'branch',
-    sourcePosition: Position.Bottom,
-    targetPosition: Position.Top,
     animated: true
   },
   // Connect second row nodes (right to left)
@@ -157,15 +207,17 @@ const initialEdges = [
     id: 'e8-9',
     source: '8',
     target: '9',
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left
+    sourceHandle: '8-right',
+    targetHandle: '9-left',
+    type: 'smoothstep'
   },
   {
     id: 'e9-10',
     source: '9',
     target: '10',
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left
+    sourceHandle: '9-right',
+    targetHandle: '10-left',
+    type: 'smoothstep'
   },
 ];
 
@@ -178,12 +230,17 @@ const FlowDiagram = () => {
     [setEdges],
   );
 
+  const nodeTypes = {
+    custom: CustomNode,
+  };
+
   return (
     <Card title="Flow Diagram Component (Remote)" style={{ margin: '20px' }}>
-      <div style={{ width: '100%', height: '500px' }}>
+      <div style={{ width: '100%', height: '800px' }}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
+          nodeTypes={nodeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
