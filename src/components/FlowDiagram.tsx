@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef, useEffect } from 'react';
+import { useCallback, useState, useRef, useEffect, useMemo, memo } from 'react';
 import {
   ReactFlow,
   MiniMap,
@@ -28,7 +28,7 @@ const nodeStyle = {
   justifyContent: 'center',
   borderRadius: 4,
   backgroundColor: '#fff',
-  border: '2px solid #1a192b',
+  border: '1px solid #1a192b',
   color: '#222',
   fontSize: '12px',
   fontWeight: 500,
@@ -40,18 +40,14 @@ const gap = 50;
 const spacing = nodeWidth + gap;
 
 // Custom node component with 4-direction handles
-const CustomNode = (props: NodeProps) => {
+const CustomNode = memo((props: NodeProps) => {
   const { data, id } = props;
-  const [isHovered, setIsHovered] = useState(false);
   const nodeData = data as { label: string };
+  const tooltipTitle = useMemo(() => `Node ID: ${id}\nLabel: ${nodeData?.label || ''}`, [id, nodeData?.label]);
 
   return (
-    <Tooltip title={`Node ID: ${id}\nLabel: ${nodeData?.label || ''}`} open={isHovered}>
-      <div
-        style={nodeStyle}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-      >
+    <Tooltip title={tooltipTitle} mouseEnterDelay={0.5}>
+      <div style={nodeStyle}>
         {/* Top handle */}
         <Handle
           type="target"
@@ -84,7 +80,9 @@ const CustomNode = (props: NodeProps) => {
       </div>
     </Tooltip>
   );
-};
+});
+
+CustomNode.displayName = 'CustomNode';
 
 const initialNodes: Node[] = [
   // First row - 7 nodes horizontally with 50px gap
@@ -160,7 +158,7 @@ const initialEdges = [
     sourceHandle: '1-right',
     targetHandle: '2-left',
     type: 'smoothstep',
-    animated: true
+    animated: false // Disable animation for better performance
   },
   {
     id: 'e2-3',
@@ -211,7 +209,7 @@ const initialEdges = [
     targetHandle: '8-top',
     type: 'smoothstep',
     label: 'branch',
-    animated: true
+    animated: false // Disable animation for better performance
   },
   // Connect second row nodes (right to left)
   {
@@ -245,7 +243,13 @@ const FlowDiagram = () => {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [editingNodeLabel, setEditingNodeLabel] = useState('');
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+  const [nodeChildren, setNodeChildren] = useState<Map<string, string[]>>(new Map());
   const menuRef = useRef<HTMLDivElement>(null);
+  
+  // Number of children to generate when expanding
+  const CHILDREN_COUNT = 3;
+  const CHILD_ROW_OFFSET = 150; // Vertical distance from parent to children
 
   const onConnect: OnConnect = useCallback(
     (params) => setEdges((eds) => addEdge(params, eds)),
@@ -290,6 +294,116 @@ const FlowDiagram = () => {
     });
   }, []);
 
+  // Expand children nodes
+  const expandNodeChildren = useCallback((parentNodeId: string) => {
+    const parentNode = nodes.find((n) => n.id === parentNodeId);
+    if (!parentNode) return;
+
+    // Check if already expanded
+    if (expandedNodes.has(parentNodeId)) {
+      return;
+    }
+
+    // Generate child node IDs
+    const childIds: string[] = [];
+    const newNodes: Node[] = [];
+    const newEdges: Edge[] = [];
+
+    // Calculate positions for children (horizontal row below parent)
+    const parentX = parentNode.position.x;
+    const parentY = parentNode.position.y;
+    const childY = parentY + CHILD_ROW_OFFSET;
+    
+    // Center children around parent node
+    const totalWidth = (CHILDREN_COUNT - 1) * spacing;
+    const startX = parentX - totalWidth / 2;
+
+    for (let i = 0; i < CHILDREN_COUNT; i++) {
+      const childId = `${parentNodeId}-child-${i + 1}`;
+      childIds.push(childId);
+      
+      const childX = startX + i * spacing;
+      
+      // Create child node
+      newNodes.push({
+        id: childId,
+        type: 'custom',
+        data: { label: `Child ${i + 1}` },
+        position: { x: childX, y: childY },
+      });
+
+      // Create edge from parent to child
+      newEdges.push({
+        id: `${parentNodeId}-${childId}`,
+        source: parentNodeId,
+        target: childId,
+        sourceHandle: `${parentNodeId}-bottom`,
+        targetHandle: `${childId}-top`,
+        type: 'smoothstep',
+        animated: false, // Disable animation for better performance
+      });
+    }
+
+    // Add new nodes and edges
+    setNodes((nds) => [...nds, ...newNodes]);
+    setEdges((eds) => [...eds, ...newEdges] as typeof edges);
+    setExpandedNodes((prev) => new Set(prev).add(parentNodeId));
+    setNodeChildren((prev) => {
+      const newMap = new Map(prev);
+      newMap.set(parentNodeId, childIds);
+      return newMap;
+    });
+
+    message.success(`Expanded ${CHILDREN_COUNT} children nodes`);
+  }, [nodes, expandedNodes, spacing, setNodes, setEdges]);
+
+  // Collapse children nodes
+  const collapseNodeChildren = useCallback((parentNodeId: string) => {
+    const childIds = nodeChildren.get(parentNodeId);
+    if (!childIds) return;
+
+    // Remove child nodes and their edges (including grandchildren recursively)
+    setNodes((nds) => {
+      const allDescendants = new Set(childIds);
+      childIds.forEach((childId) => {
+        const grandchildren = nodeChildren.get(childId);
+        if (grandchildren) {
+          grandchildren.forEach((gcId) => allDescendants.add(gcId));
+        }
+      });
+      return nds.filter((n) => !allDescendants.has(n.id));
+    });
+
+    setEdges((eds) => {
+      const allDescendants = new Set(childIds);
+      childIds.forEach((childId) => {
+        const grandchildren = nodeChildren.get(childId);
+        if (grandchildren) {
+          grandchildren.forEach((gcId) => allDescendants.add(gcId));
+        }
+      });
+      return eds.filter((e) => !allDescendants.has(e.source) && !allDescendants.has(e.target));
+    });
+
+    setExpandedNodes((prev) => {
+      const newSet = new Set(prev);
+      newSet.delete(parentNodeId);
+      // Also remove children from expanded set
+      childIds.forEach((childId) => newSet.delete(childId));
+      return newSet;
+    });
+
+    setNodeChildren((prev) => {
+      const newMap = new Map(prev);
+      newMap.delete(parentNodeId);
+      // Also remove children's children
+      childIds.forEach((childId) => newMap.delete(childId));
+      return newMap;
+    });
+
+    message.success('Collapsed children nodes');
+  }, [nodeChildren, setNodes, setEdges]);
+
   const handleMenuClick: MenuProps['onClick'] = useCallback(({ key }: { key: string }) => {
     if (!contextMenu) return;
 
@@ -306,7 +420,19 @@ const FlowDiagram = () => {
           setEditModalVisible(true);
           setContextMenu(null);
           break;
+        case 'expand-children':
+          expandNodeChildren(node.id);
+          setContextMenu(null);
+          break;
+        case 'collapse-children':
+          collapseNodeChildren(node.id);
+          setContextMenu(null);
+          break;
         case 'delete':
+          // Remove node and its children if expanded
+          if (expandedNodes.has(node.id)) {
+            collapseNodeChildren(node.id);
+          }
           setNodes((nds) => nds.filter((n) => n.id !== node.id));
           setEdges((eds) => eds.filter((e) => e.source !== node.id && e.target !== node.id));
           message.success('Node deleted successfully');
@@ -326,6 +452,7 @@ const FlowDiagram = () => {
                 <p><strong>Label:</strong> {nodeData?.label || 'N/A'}</p>
                 <p><strong>Type:</strong> {node.type || 'custom'}</p>
                 <p><strong>Position:</strong> X: {node.position.x}, Y: {node.position.y}</p>
+                <p><strong>Children:</strong> {nodeChildren.get(node.id)?.length || 0}</p>
               </div>
             ),
           });
@@ -378,7 +505,7 @@ const FlowDiagram = () => {
           break;
       }
     }
-  }, [contextMenu, nodes, edges, setNodes, setEdges]);
+  }, [contextMenu, nodes, edges, expandedNodes, nodeChildren, expandNodeChildren, collapseNodeChildren, setNodes, setEdges]);
 
   const handleUpdateNodeLabel = useCallback(() => {
     if (editingNodeId) {
@@ -416,10 +543,15 @@ const FlowDiagram = () => {
     }
   }, [editingNodeId, editingNodeLabel, contextMenu, nodes, edges, setNodes, setEdges]);
 
-  const nodeMenuItems: MenuProps['items'] = [
+  // Dynamic node menu items based on expansion state - memoized
+  const nodeMenuItemsBase = useMemo<MenuProps['items']>(() => [
     {
       key: 'edit',
       label: 'Edit',
+    },
+    {
+      key: 'expand-children',
+      label: 'Expand Children',
     },
     {
       key: 'change-type',
@@ -437,7 +569,23 @@ const FlowDiagram = () => {
       label: 'Delete',
       danger: true,
     },
-  ];
+  ], []);
+
+  const getNodeMenuItems = useCallback((nodeId: string): MenuProps['items'] => {
+    const isExpanded = expandedNodes.has(nodeId);
+    if (!nodeMenuItemsBase) return [];
+    return nodeMenuItemsBase.map((item) => {
+      if (!item || typeof item === 'string') return item;
+      if (item.key === 'expand-children') {
+        return {
+          ...item,
+          key: isExpanded ? 'collapse-children' : 'expand-children',
+          label: isExpanded ? 'Collapse Children' : 'Expand Children',
+        };
+      }
+      return item;
+    }).filter(Boolean);
+  }, [expandedNodes, nodeMenuItemsBase]);
 
   const edgeMenuItems: MenuProps['items'] = [
     {
@@ -462,9 +610,9 @@ const FlowDiagram = () => {
     },
   ];
 
-  const nodeTypes = {
+  const nodeTypes = useMemo(() => ({
     custom: CustomNode,
-  };
+  }), []);
 
   return (
     <Card title="Flow Diagram Component (Remote)" style={{ margin: '20px' }}>
@@ -478,7 +626,17 @@ const FlowDiagram = () => {
           onConnect={onConnect}
           onNodeContextMenu={handleNodeContextMenu}
           onEdgeContextMenu={handleEdgeContextMenu}
+          nodesDraggable={true}
+          nodesConnectable={true}
+          elementsSelectable={true}
+          selectNodesOnDrag={false}
+          panOnDrag={[1, 2]}
+          zoomOnScroll={true}
+          zoomOnPinch={true}
+          preventScrolling={false}
           fitView
+          fitViewOptions={{ padding: 0.2, maxZoom: 1.5 }}
+          defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         >
           <Controls />
           <MiniMap
@@ -491,6 +649,7 @@ const FlowDiagram = () => {
             pannable
           />
           <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
+          {/* Disable fitViewOnInit để tránh re-render khi mount */}
         </ReactFlow>
 
         {/* Context Menu */}
@@ -508,7 +667,7 @@ const FlowDiagram = () => {
             }}
           >
             <Menu
-              items={contextMenu.type === 'node' ? nodeMenuItems : edgeMenuItems}
+              items={contextMenu.type === 'node' ? getNodeMenuItems(contextMenu.id) : edgeMenuItems}
               onClick={handleMenuClick}
             />
           </div>
